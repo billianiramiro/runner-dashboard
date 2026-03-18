@@ -168,13 +168,102 @@ with t1:
     st.markdown("#### Actividad")
     st.plotly_chart(heatmap_calendar(df_all), use_container_width=True,
                     key="chart_heatmap", config={"displayModeBar":False})
-    c1, c2 = st.columns([3,2])
-    with c1:
-        st.plotly_chart(weekly_km_bars(get_weekly_summary()), use_container_width=True,
-                        key="chart_weekly", config={"displayModeBar":False})
-    with c2:
-        st.plotly_chart(distance_by_type(df_all), use_container_width=True,
-                        key="chart_by_type", config={"displayModeBar":False})
+
+    st.markdown(
+        "<p style='font-size:0.68rem;letter-spacing:0.18em;text-transform:uppercase;"
+        "color:rgba(240,240,235,0.35);margin:1.2rem 0 0.4rem'>Intensidad por Mes</p>",
+        unsafe_allow_html=True)
+
+    if df_all.empty:
+        st.info("Cargá entrenamientos para ver el mapa de calor.")
+    else:
+        import plotly.graph_objects as go
+        import numpy as np
+        from scipy.ndimage import gaussian_filter
+
+        d = df_all.copy()
+        d["mes_num"] = d["date"].dt.month + (d["date"].dt.year - d["date"].dt.year.min()) * 12
+
+        # Construir todos los meses desde el primero hasta hoy
+        first_date = d["date"].min()
+        last_date  = pd.Timestamp(today)
+        all_months = pd.period_range(
+            start=first_date.to_period("M"),
+            end=last_date.to_period("M"),
+            freq="M"
+        )
+
+        month_names = []
+        km_per_month = []
+        for p in all_months:
+            names = ["","Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"]
+            month_names.append(f"{names[p.month]} {str(p.year)[2:]}")
+            mask = (d["date"].dt.year == p.year) & (d["date"].dt.month == p.month)
+            km_per_month.append(d.loc[mask, "distance_km"].sum())
+
+        n = len(km_per_month)
+        # Repetir cada mes en varias filas para dar altura y suavizar
+        rows   = 8
+        z_raw  = np.array([km_per_month] * rows, dtype=float)
+
+        # Suavizado gaussiano — crea el efecto de gradiente continuo
+        z_smooth = gaussian_filter(z_raw, sigma=[1.2, 1.5])
+
+        colorscale = [
+            [0.0,  "#0D0D0D"],
+            [0.15, "#0A1A0A"],
+            [0.30, "#1A3A0A"],
+            [0.50, "#4A8A10"],
+            [0.70, "#C8F04B"],
+            [0.85, "#FFD700"],
+            [1.0,  "#FF4500"],
+        ]
+
+        hover = [[
+            f"<b>{month_names[j]}</b><br>{km_per_month[j]:.1f} km"
+            for j in range(n)
+        ] * rows][0]
+        hover_matrix = [hover] * rows
+
+        fig_smooth = go.Figure(go.Heatmap(
+            z=z_smooth,
+            x=month_names,
+            text=hover_matrix,
+            hovertemplate="%{text}<extra></extra>",
+            colorscale=colorscale,
+            showscale=True,
+            colorbar=dict(
+                thickness=10,
+                tickfont=dict(size=9, color="rgba(240,240,235,0.45)",
+                              family="DM Mono, monospace"),
+                title=dict(text="km", side="right",
+                           font=dict(size=10, color="rgba(240,240,235,0.45)",
+                                     family="DM Mono, monospace")),
+                bgcolor="rgba(0,0,0,0)",
+                outlinewidth=0,
+            ),
+            xgap=0, ygap=0,
+            zsmooth="best",
+        ))
+
+        fig_smooth.update_layout(
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            height=220,
+            margin=dict(l=12, r=60, t=10, b=40),
+            font=dict(family="DM Mono, monospace",
+                      color="rgba(240,240,235,0.45)", size=10),
+            xaxis=dict(
+                showgrid=False, zeroline=False,
+                tickangle=-30, tickfont=dict(size=9),
+                tickmode="array",
+                tickvals=list(range(n)),
+                ticktext=month_names,
+            ),
+            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        )
+        st.plotly_chart(fig_smooth, use_container_width=True,
+                        key="chart_heat2", config={"displayModeBar":False})
 
 # ── Tab 2 ─────────────────────────────────────────────────
 with t2:
@@ -546,4 +635,5 @@ with t4:
             with cb:
                 if st.button("✕", key=f"del_{row['id']}"):
                     delete_workout(int(row["id"])); st.rerun()
+
 
