@@ -120,10 +120,15 @@ with st.sidebar:
         if not any([dist_f, t_s, p_s]):
             st.error("Ingresá al menos una métrica.")
         else:
-            insert_workout(workout_date.isoformat(), training_type,
-                           dist_f, t_s, p_s, notes, race_name)
-            st.success("✓ Guardado")
-            clear_form(); st.rerun()
+            try:
+                insert_workout(workout_date.isoformat(), training_type,
+                               dist_f, t_s, p_s, notes, race_name)
+                st.success("✓ Guardado")
+                clear_form()
+                import time; time.sleep(0.5)
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error al guardar: {e}")
 
     st.markdown("<hr><p style='font-size:0.62rem;color:rgba(240,240,235,0.18);"
                 "text-align:center;letter-spacing:0.08em'>"
@@ -173,29 +178,103 @@ with t1:
 
 # ── Tab 2 ─────────────────────────────────────────────────
 with t2:
+    from datetime import timedelta
+
     st.plotly_chart(pace_evolution(df_all), use_container_width=True,
                     key="chart_pace", config={"displayModeBar":False})
-    races = df_all[df_all["type"]=="Carrera Oficial"].copy() if not df_all.empty else pd.DataFrame()
-    if not races.empty:
-        st.markdown("#### 🏅 Carreras Oficiales")
-        cols = st.columns(min(len(races),4))
-        for i,(_, row) in enumerate(races.head(4).iterrows()):
-            with cols[i]:
-                dist_s = f"{row['distance_km']:.1f} km" if pd.notna(row.get("distance_km")) else "—"
-                dur_s  = seconds_to_hms(int(row["duration_s"])) if pd.notna(row.get("duration_s")) else "—"
-                pace_s = seconds_to_pace_str(int(row["pace_s_km"]))+"/km" if pd.notna(row.get("pace_s_km")) else "—"
-                label  = row.get("race_name") or "Carrera"
-                st.markdown(
-                    f"<div class='runner-card'>"
-                    f"<p style='font-size:0.68rem;color:rgba(240,240,235,0.38);margin:0'>"
-                    f"{row['date'].strftime('%d %b %Y')}</p>"
-                    f"<p style='font-size:0.9rem;font-weight:600;margin:3px 0'>{label}</p>"
-                    f"<span class='stat-pill'>{dist_s}</span>"
-                    f"<span class='stat-pill'>{dur_s}</span>"
-                    f"<span class='stat-pill'>{pace_s}</span>"
-                    f"</div>", unsafe_allow_html=True)
-    elif df_all.empty:
+
+    st.markdown("<hr>", unsafe_allow_html=True)
+    st.markdown(
+        "<p style='font-size:0.68rem;letter-spacing:0.18em;text-transform:uppercase;"
+        "color:rgba(240,240,235,0.35);margin-bottom:1rem'>Últimas 52 Semanas</p>",
+        unsafe_allow_html=True)
+
+    if df_all.empty:
         st.info("Registrá tus primeros entrenamientos para ver la analítica.")
+    else:
+        # ── Calcular estadísticas 52 semanas ──────────────
+        since_52 = (today - timedelta(weeks=52)).isoformat()
+        df_52 = df_all[df_all["date"] >= since_52].copy()
+
+        total_days_period = 364
+        dias_corridos     = df_52["date"].dt.date.nunique()
+        dias_descanso     = total_days_period - dias_corridos
+        km_total_52       = df_52["distance_km"].sum()
+        sesiones_52       = len(df_52)
+        mejor_ritmo       = df_52["pace_s_km"].dropna().min()
+        km_max_semana     = 0
+        if not df_52.empty:
+            df_52["week"] = df_52["date"].dt.to_period("W")
+            km_max_semana = df_52.groupby("week")["distance_km"].sum().max()
+
+        # ── Fila de stats ──────────────────────────────────
+        s1, s2, s3, s4, s5 = st.columns(5)
+        s1.metric("Días corridos",  str(dias_corridos))
+        s2.metric("Días descanso",  str(dias_descanso))
+        s3.metric("km totales",     f"{km_total_52:.1f}")
+        s4.metric("Mejor ritmo",    seconds_to_pace_str(int(mejor_ritmo)) + "/km" if mejor_ritmo else "—")
+        s5.metric("Mejor semana",   f"{km_max_semana:.1f} km" if km_max_semana else "—")
+
+        # ── Gráfico de dona + listado tipos ───────────────
+        col_pie, col_list = st.columns([2, 1])
+
+        with col_pie:
+            if not df_52.empty:
+                import plotly.graph_objects as go
+                type_agg = df_52.groupby("type")["distance_km"].sum().reset_index()
+                type_agg.columns = ["tipo", "km"]
+                type_agg = type_agg[type_agg["km"] > 0].sort_values("km", ascending=False)
+
+                COLORS = ["#C8F04B","#4BF0C8","#F0C84B","#F04B8A","#8A4BF0","#4B8AF0"]
+
+                fig_donut = go.Figure(go.Pie(
+                    labels=type_agg["tipo"],
+                    values=type_agg["km"],
+                    hole=0.55,
+                    marker=dict(colors=COLORS[:len(type_agg)],
+                                line=dict(color="#0D0D0D", width=2)),
+                    textinfo="percent",
+                    textfont=dict(size=11, color="#F0F0EB", family="DM Mono, monospace"),
+                    hovertemplate="<b>%{label}</b><br>%{value:.1f} km · %{percent}<extra></extra>",
+                ))
+                fig_donut.add_annotation(
+                    text=f"<b>{km_total_52:.0f}</b><br><span style='font-size:10px'>km</span>",
+                    x=0.5, y=0.5, showarrow=False,
+                    font=dict(size=18, color="#C8F04B", family="Syne, sans-serif"),
+                )
+                fig_donut.update_layout(
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    showlegend=False,
+                    height=280,
+                    margin=dict(l=10, r=10, t=20, b=10),
+                )
+                st.plotly_chart(fig_donut, use_container_width=True,
+                                key="chart_donut", config={"displayModeBar":False})
+
+        with col_list:
+            st.markdown("<div style='padding-top:0.6rem'>", unsafe_allow_html=True)
+            if not df_52.empty:
+                type_agg2 = df_52.groupby("type").agg(
+                    km=("distance_km","sum"),
+                    sesiones=("id","count")
+                ).reset_index().sort_values("km", ascending=False)
+
+                for i, (_, row) in enumerate(type_agg2.iterrows()):
+                    color = COLORS[i % len(COLORS)]
+                    pct   = int(row["km"] / km_total_52 * 100) if km_total_52 > 0 else 0
+                    st.markdown(
+                        f"<div style='display:flex;align-items:center;gap:10px;"
+                        f"margin-bottom:10px'>"
+                        f"<div style='width:10px;height:10px;border-radius:50%;"
+                        f"background:{color};flex-shrink:0'></div>"
+                        f"<div style='flex:1'>"
+                        f"<p style='font-size:0.78rem;font-weight:500;margin:0;color:#F0F0EB'>{row['type']}</p>"
+                        f"<p style='font-size:0.68rem;color:rgba(240,240,235,0.4);margin:0'>"
+                        f"{row['km']:.1f} km · {int(row['sesiones'])} ses. · {pct}%</p>"
+                        f"</div></div>",
+                        unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
 
 # ── Tab 3: Maratón 2028 ───────────────────────────────────
 with t3:
@@ -467,3 +546,4 @@ with t4:
             with cb:
                 if st.button("✕", key=f"del_{row['id']}"):
                     delete_workout(int(row["id"])); st.rerun()
+
