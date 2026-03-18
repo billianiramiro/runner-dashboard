@@ -38,44 +38,61 @@ def heatmap_calendar(df: pd.DataFrame) -> go.Figure:
     cal = pd.DataFrame({"date": all_dates})
     cal["date_only"] = cal["date"].dt.date
 
+    # Valores: -1 = sin datos, 0 = descanso, 1 = entrenamiento, 2 = carrera oficial
+    cal["val"]   = 0.0
+    cal["km"]    = 0.0
+    cal["label"] = ""
+
     if not df.empty and "date" in df.columns:
         active = df.copy()
         active["date_only"] = pd.to_datetime(active["date"]).dt.date
-        agg = active.groupby("date_only")["distance_km"].sum().reset_index()
-        agg.columns = ["date_only", "km"]
-        cal = cal.merge(agg, on="date_only", how="left")
-        cal["km"] = cal["km"].fillna(0)
-    else:
-        cal["km"] = 0
+
+        # km por día
+        agg_km = active.groupby("date_only")["distance_km"].sum().reset_index()
+        agg_km.columns = ["date_only", "km"]
+
+        # ¿tiene carrera oficial ese día?
+        races = active[active["type"] == "Carrera Oficial"]["date_only"].unique()
+
+        cal = cal.merge(agg_km, on="date_only", how="left", suffixes=("","_new"))
+        if "km_new" in cal.columns:
+            cal["km"] = cal["km_new"].fillna(0)
+            cal.drop(columns=["km_new"], inplace=True)
+        else:
+            cal["km"] = cal["km"].fillna(0)
+
+        # Asignar valor: 2=carrera, 1=entrenamiento, 0=descanso
+        cal.loc[cal["km"] > 0, "val"] = 1.0
+        cal.loc[cal["date_only"].isin(races), "val"] = 2.0
 
     cal["dow"]  = cal["date"].dt.dayofweek
     cal["week"] = ((cal["date"] - pd.Timestamp(start)).dt.days // 7)
 
-    z    = np.full((7, 53), -1.0)
+    z    = np.zeros((7, 53))
     text = [["" for _ in range(53)] for _ in range(7)]
 
     for _, row in cal.iterrows():
         w, d = int(row["week"]), int(row["dow"])
         if w < 53:
-            z[d][w] = float(row["km"])
-            text[d][w] = f"{row['date_only']}<br>{row['km']:.1f} km" if row["km"] > 0 else str(row["date_only"])
+            z[d][w] = float(row["val"])
+            km_str = f" · {row['km']:.1f} km" if row["km"] > 0 else ""
+            text[d][w] = f"{row['date_only']}{km_str}"
 
-    # Colorscale: -1 = never happened (dark), 0 = rest day (deep red), >0 = activity (green)
+    # 0 = descanso (gris oscuro), 1 = entrenamiento (verde), 2 = carrera (amarillo)
     colorscale = [
-        [0.0,  "#1A1A1A"],   # -1: future / no data → dark gray
-        [0.45, "#3D0A0A"],   # 0: rest day → deep red
-        [0.50, "#5C1A1A"],   # just above 0: faint red
-        [0.55, "#1D3318"],   # small activity → dark green
-        [0.75, "#2E6B28"],
-        [0.90, "#5CB85C"],
-        [1.0,  ACCENT],      # high activity → lime
+        [0.0,  "#1E1E1E"],   # 0: descanso → gris oscuro
+        [0.49, "#1E1E1E"],
+        [0.50, "#2E6B28"],   # 1: entrenamiento → verde medio
+        [0.74, ACCENT],      # verde lima brillante
+        [0.75, "#F0C84B"],   # 2: carrera oficial → amarillo
+        [1.0,  "#FFD700"],   # amarillo dorado
     ]
 
     fig = go.Figure(go.Heatmap(
         z=z, text=text,
         hovertemplate="%{text}<extra></extra>",
         colorscale=colorscale,
-        zmin=-1, zmax=20,
+        zmin=0, zmax=2,
         showscale=False,
         xgap=3, ygap=3,
     ))
