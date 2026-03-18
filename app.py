@@ -65,8 +65,12 @@ def on_change():
             st.session_state["auto_field"] = "distancia"
 
 def clear_form():
-    for k in ["dist","time_str","pace_str","auto_field","_dist","_time","_pace"]:
+    for k in ["dist","time_str","pace_str","auto_field"]:
         st.session_state[k] = "" if k != "auto_field" else None
+    # Limpiar widgets con prefijo _ usando pop para evitar el error de modificación
+    for k in ["_dist","_time","_pace"]:
+        if k in st.session_state:
+            del st.session_state[k]
 
 # ── SIDEBAR ───────────────────────────────────────────────
 with st.sidebar:
@@ -762,4 +766,3 @@ with t5:
             )
             st.plotly_chart(fig_races, use_container_width=True,
                             key="chart_races", config={"displayModeBar": False})
-
