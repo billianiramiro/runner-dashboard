@@ -200,7 +200,15 @@ hr { border-color: var(--border) !important; }
 }
 
 /* ── Hide Streamlit branding ────────────────────────────── */
-#MainMenu, footer, header { visibility: hidden !important; }
+#MainMenu, footer { visibility: hidden !important; }
 [data-testid="stDecoration"] { display: none !important; }
+
+/* ── Siempre mostrar el botón de abrir/cerrar sidebar ───── */
+[data-testid="collapsedControl"],
+[data-testid="stSidebarCollapsedControl"] {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
 </style>
 """
