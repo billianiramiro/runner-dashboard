@@ -161,7 +161,7 @@ k4.metric("Ritmo prom.",    seconds_to_pace_str(int(avg_pace))+"/km" if avg_pace
 k5.metric("Último run",     last_run)
 st.markdown("<hr>", unsafe_allow_html=True)
 
-t1, t2, t3, t4 = st.tabs(["📊  Overview","📈  Analítica","🏁  Maratón 2028","📋  Historial"])
+t1, t2, t3, t4, t5 = st.tabs(["📊  Overview","📈  Analítica","🏁  Maratón 2028","📋  Historial","🏅  Carreras"])
 
 # ── Tab 1 ─────────────────────────────────────────────────
 with t1:
@@ -636,4 +636,130 @@ with t4:
                 if st.button("✕", key=f"del_{row['id']}"):
                     delete_workout(int(row["id"])); st.rerun()
 
+# ── Tab 5: Carreras ───────────────────────────────────────
+with t5:
+    races_all = df_all[df_all["type"] == "Carrera Oficial"].copy() if not df_all.empty else pd.DataFrame()
+
+    if races_all.empty:
+        st.info("Todavía no cargaste ninguna Carrera Oficial. Usá el formulario con tipo 'Carrera Oficial' para registrarlas.")
+    else:
+        races_all = races_all.sort_values("date").reset_index(drop=True)
+
+        # ── Calcular diferencia de ritmo entre carreras consecutivas ──
+        races_all["pace_diff_s"] = races_all["pace_s_km"].diff()  # diff en segundos
+        races_all["dist_diff"]   = races_all["distance_km"].diff()
+
+        # ── Tabla de carreras ─────────────────────────────
+        st.markdown(
+            "<p style='font-size:0.68rem;letter-spacing:0.18em;text-transform:uppercase;"
+            "color:rgba(240,240,235,0.35);margin-bottom:1rem'>Registro de Carreras Oficiales</p>",
+            unsafe_allow_html=True)
+
+        # Header
+        st.markdown("""
+<div style='display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr 1.2fr;
+     gap:8px;padding:6px 14px;margin-bottom:4px'>
+  <span style='font-size:0.62rem;text-transform:uppercase;letter-spacing:0.1em;
+        color:rgba(240,240,235,0.3)'>Carrera</span>
+  <span style='font-size:0.62rem;text-transform:uppercase;letter-spacing:0.1em;
+        color:rgba(240,240,235,0.3)'>Fecha</span>
+  <span style='font-size:0.62rem;text-transform:uppercase;letter-spacing:0.1em;
+        color:rgba(240,240,235,0.3)'>Distancia</span>
+  <span style='font-size:0.62rem;text-transform:uppercase;letter-spacing:0.1em;
+        color:rgba(240,240,235,0.3)'>Tiempo</span>
+  <span style='font-size:0.62rem;text-transform:uppercase;letter-spacing:0.1em;
+        color:rgba(240,240,235,0.3)'>Ritmo</span>
+  <span style='font-size:0.62rem;text-transform:uppercase;letter-spacing:0.1em;
+        color:rgba(240,240,235,0.3)'>vs anterior</span>
+</div>""", unsafe_allow_html=True)
+
+        for i, (_, row) in enumerate(races_all.iterrows()):
+            name    = row.get("race_name") or f"Carrera {i+1}"
+            fecha   = row["date"].strftime("%d %b %Y") if pd.notna(row.get("date")) else "—"
+            dist_s  = f"{row['distance_km']:.1f} km" if pd.notna(row.get("distance_km")) else "—"
+            dur_s   = seconds_to_hms(int(row["duration_s"])) if pd.notna(row.get("duration_s")) else "—"
+            pace_s  = seconds_to_pace_str(int(row["pace_s_km"])) + "/km" if pd.notna(row.get("pace_s_km")) else "—"
+
+            # Diferencia de ritmo vs carrera anterior
+            diff_s = row.get("pace_diff_s")
+            if i == 0 or pd.isna(diff_s):
+                diff_html = "<span style='color:rgba(240,240,235,0.25)'>—</span>"
+            else:
+                diff_s = int(diff_s)
+                sign   = "+" if diff_s > 0 else ""
+                # negativo = más rápido (ritmo bajó) → verde, positivo = más lento → rojo
+                color  = "#C8F04B" if diff_s < 0 else "#F04B4B" if diff_s > 0 else "rgba(240,240,235,0.4)"
+                arrow  = "▲ más rápido" if diff_s < 0 else "▼ más lento" if diff_s > 0 else "igual"
+                # Mostrar como mm:ss
+                abs_m  = abs(diff_s) // 60
+                abs_s  = abs(diff_s) % 60
+                diff_str = f"{sign}{abs_m}:{abs_s:02d} /km"
+                diff_html = (
+                    f"<span style='color:{color};font-size:0.78rem'>{diff_str}</span>"
+                    f"<br><span style='font-size:0.6rem;color:{color};opacity:0.7'>{arrow}</span>"
+                )
+
+            # Fila con borde izquierdo dorado para carreras oficiales
+            st.markdown(f"""
+<div style='display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr 1.2fr;
+     gap:8px;align-items:center;
+     background:#141414;border:1px solid rgba(255,255,255,0.07);
+     border-left:3px solid #FFD700;border-radius:0 10px 10px 0;
+     padding:10px 14px;margin-bottom:6px'>
+  <div>
+    <p style='font-size:0.88rem;font-weight:600;color:#F0F0EB;margin:0'>{name}</p>
+  </div>
+  <span style='font-size:0.78rem;color:rgba(240,240,235,0.55)'>{fecha}</span>
+  <span style='font-size:0.82rem;color:#C8F04B;font-weight:600'>{dist_s}</span>
+  <span style='font-size:0.82rem;color:rgba(240,240,235,0.7)'>{dur_s}</span>
+  <span style='font-size:0.82rem;color:rgba(240,240,235,0.7)'>{pace_s}</span>
+  <div>{diff_html}</div>
+</div>""", unsafe_allow_html=True)
+
+        # ── Gráfico evolución de ritmo en carreras ────────
+        if len(races_all) >= 2:
+            st.markdown(
+                "<p style='font-size:0.68rem;letter-spacing:0.18em;text-transform:uppercase;"
+                "color:rgba(240,240,235,0.35);margin:1.4rem 0 0.4rem'>Evolución del Ritmo</p>",
+                unsafe_allow_html=True)
+
+            import plotly.graph_objects as go
+
+            labels = [row.get("race_name") or f"Carrera {i+1}"
+                      for i, (_, row) in enumerate(races_all.iterrows())]
+            paces  = [row["pace_s_km"] / 60 for _, row in races_all.iterrows()
+                      if pd.notna(row.get("pace_s_km"))]
+            custom = [seconds_to_pace_str(int(row["pace_s_km"])) + "/km"
+                      for _, row in races_all.iterrows()
+                      if pd.notna(row.get("pace_s_km"))]
+
+            fig_races = go.Figure()
+            fig_races.add_trace(go.Scatter(
+                x=labels, y=paces,
+                mode="lines+markers",
+                line=dict(color="#FFD700", width=2.5, shape="spline"),
+                marker=dict(size=10, color="#FFD700",
+                            line=dict(color="#0D0D0D", width=2)),
+                hovertemplate="<b>%{x}</b><br>%{customdata}<extra></extra>",
+                customdata=custom,
+            ))
+            fig_races.update_yaxes(
+                autorange="reversed",
+                tickformat=".2f",
+                title=dict(text="min/km", font=dict(size=10,
+                           color="rgba(240,240,235,0.35)",
+                           family="DM Mono, monospace")),
+                gridcolor="rgba(255,255,255,0.06)",
+            )
+            fig_races.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                height=260,
+                margin=dict(l=12, r=12, t=16, b=12),
+                font=dict(family="DM Mono, monospace",
+                          color="rgba(240,240,235,0.4)", size=10),
+                xaxis=dict(showgrid=False, tickangle=-20),
+            )
+            st.plotly_chart(fig_races, use_container_width=True,
+                            key="chart_races", config={"displayModeBar": False})
 
